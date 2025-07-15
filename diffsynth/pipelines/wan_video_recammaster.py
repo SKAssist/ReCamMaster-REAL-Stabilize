@@ -22,7 +22,7 @@ from ..models.wan_video_vae import RMS_norm, CausalConv3d, Upsample
 
 class WanVideoReCamMasterPipeline(BasePipeline):
 
-    def __init__(self, device="cuda", torch_dtype=torch.float16, tokenizer_path=None):
+    def __init__(self, device="cuda", torch_dtype=torch.float16, tokenizer_path=None, is_i2v=False):
         super().__init__(device=device, torch_dtype=torch_dtype)
         self.scheduler = FlowMatchScheduler(shift=5, sigma_min=0.0, extra_one_step=True)
         self.prompter = WanPrompter(tokenizer_path=tokenizer_path)
@@ -33,6 +33,8 @@ class WanVideoReCamMasterPipeline(BasePipeline):
         self.model_names = ['text_encoder', 'dit', 'vae']
         self.height_division_factor = 16
         self.width_division_factor = 16
+        self.has_image_input = is_i2v
+        
 
 
     def enable_vram_management(self, num_persistent_param_in_dit=None):
@@ -130,15 +132,16 @@ class WanVideoReCamMasterPipeline(BasePipeline):
             self.prompter.fetch_models(self.text_encoder)
             self.prompter.fetch_tokenizer(os.path.join(os.path.dirname(tokenizer_path), "google/umt5-xxl"))
         self.dit = model_manager.fetch_model("wan_video_dit")
+        self.dit.has_image_input = self.has_image_input
         self.vae = model_manager.fetch_model("wan_video_vae")
         self.image_encoder = model_manager.fetch_model("wan_video_image_encoder")
 
 
     @staticmethod
-    def from_model_manager(model_manager: ModelManager, torch_dtype=None, device=None):
+    def from_model_manager(model_manager: ModelManager, torch_dtype=None, device=None, is_i2v=False):
         if device is None: device = model_manager.device
         if torch_dtype is None: torch_dtype = model_manager.torch_dtype
-        pipe = WanVideoReCamMasterPipeline(device=device, torch_dtype=torch_dtype)
+        pipe = WanVideoReCamMasterPipeline(device=device, torch_dtype=torch_dtype, is_i2v=is_i2v)
         pipe.fetch_models(model_manager)
         return pipe
     
@@ -236,9 +239,9 @@ class WanVideoReCamMasterPipeline(BasePipeline):
             self.load_models_to_device(['vae'])
             input_video = self.preprocess_images(input_video)
             input_video = torch.stack(input_video, dim=2).to(dtype=self.torch_dtype, device=self.device)
-            print(f"input_video shape {input_video.shape}")
+            # print(f"input_video shape {input_video.shape}")
             latents = self.encode_video(input_video, **tiler_kwargs).to(dtype=self.torch_dtype, device=self.device)
-            print(f"latents shape {input_video.shape}")
+            # print(f"latents shape {input_video.shape}")
             latents = self.scheduler.add_noise(latents, noise, timestep=self.scheduler.timesteps[0])
         else:
             latents = noise
@@ -250,9 +253,9 @@ class WanVideoReCamMasterPipeline(BasePipeline):
 
         # Process target camera (recammaster)
         cam_emb = target_camera.to(dtype=self.torch_dtype, device=self.device)
-        print(f"source vida {source_video.shape}")
-        print(f"source latents {source_latents.shape}")
-        print(f"camera embedding {cam_emb.shape}")
+       #  print(f"source vida {source_video.shape}")
+       # print(f"source latents {source_latents.shape}")
+       # print(f"camera embedding {cam_emb.shape}")
 
         # Encode prompts
         self.load_models_to_device(["text_encoder"])
@@ -279,9 +282,9 @@ class WanVideoReCamMasterPipeline(BasePipeline):
         tgt_latent_length = latents.shape[2]
         for progress_id, timestep in enumerate(progress_bar_cmd(self.scheduler.timesteps)):
             timestep = timestep.unsqueeze(0).to(dtype=self.torch_dtype, device=self.device)
-            print(f"latents shape{latents.shape}")
+            # print(f"latents shape{latents.shape}")
             latents_input = torch.cat([latents, source_latents], dim=2)
-            print(f"latents_input shape{latents_input.shape}")
+            # print(f"latents_input shape{latents_input.shape}")
             # Inference
             noise_pred_posi = model_fn_wan_video(self.dit, latents_input, timestep=timestep, cam_emb=cam_emb, **prompt_emb_posi, **image_emb, **extra_input, **tea_cache_posi)
             if cfg_scale != 1.0:
@@ -372,15 +375,15 @@ def model_fn_wan_video(
     context = dit.text_embedding(context)
     
     if dit.has_image_input:
-        print(f"w/ image input {x.shape}")
+       # print(f"w/ image input {x.shape}")
         x = torch.cat([x, y], dim=1)  # (b, c_x + c_y, f, h, w)
-        print(f"w/ image input after concatenating {x.shape}")
+       # print(f"w/ image input after concatenating {x.shape}")
         
         clip_embdding = dit.img_emb(clip_feature)
         context = torch.cat([clip_embdding, context], dim=1)
     
     x, (f, h, w) = dit.patchify(x)
-    print(f"patchify {x.shape}")
+    #print(f"patchify {x.shape}")
         
     freqs = torch.cat([
         dit.freqs[0][:f].view(f, 1, 1, -1).expand(f, h, w, -1),
@@ -396,13 +399,13 @@ def model_fn_wan_video(
         tea_cache_update = False
     
     if tea_cache_update:
-        print(x.shape)
+        #print(x.shape)
         x = tea_cache.update(x)
     else:
         # blocks
         for block in dit.blocks:
-            print(f"x in dit blocks{x.shape}")
-            print(f"cam_emb{cam_emb.shape}")
+            # print(f"x in dit blocks{x.shape}")
+            # print(f"cam_emb{cam_emb.shape}")
             
             x = block(x, context, cam_emb, t_mod, freqs)
         if tea_cache is not None:

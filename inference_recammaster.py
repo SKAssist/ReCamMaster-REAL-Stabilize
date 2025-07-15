@@ -129,9 +129,13 @@ class TextVideoCameraDataset(torch.utils.data.Dataset):
         video = self.load_video(path)
         if video is None:
             raise ValueError(f"{path} is not a valid video.")
-        num_frames = video.shape[1]
+        if not self.is_i2v:
+            num_frames = video.shape[1]
+        else:
+            num_frames = video[0].shape[1]
+
         print(f"num_frames {num_frames}")
-        print(f"video shape {video.shape}")
+        # print(f"video shape {video.shape}")
               
         # assert num_frames == 81
         data = {"text": text, "video": video, "path": path}
@@ -182,7 +186,7 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="./real_results_v3",
+        default="./real_results_v5",
         help="Path to save the results.",
     )
     parser.add_argument(
@@ -214,7 +218,8 @@ if __name__ == '__main__':
         "models/Wan-AI/Wan2.1-T2V-1.3B/models_t5_umt5-xxl-enc-bf16.pth",
         "models/Wan-AI/Wan2.1-T2V-1.3B/Wan2.1_VAE.pth",
     ])
-    pipe = WanVideoReCamMasterPipeline.from_model_manager(model_manager, device="cuda")
+    # pipe = WanVideoReCamMasterPipeline.from_model_manager(model_manager, device="cuda", is_i2v=True)
+    pipe = WanVideoReCamMasterPipeline.from_model_manager(model_manager, device="cuda", is_i2v=False)
 
     # 2. Initialize additional modules introduced in ReCamMaster
     dim=pipe.dit.blocks[0].self_attn.q.weight.shape[0]
@@ -240,7 +245,7 @@ if __name__ == '__main__':
     dataset = TextVideoCameraDataset(
         args.dataset_path,
         os.path.join(args.dataset_path, "metadata.csv"),
-        args,
+        args, is_i2v=False
     )
     dataloader = torch.utils.data.DataLoader(
         dataset,
@@ -261,7 +266,7 @@ if __name__ == '__main__':
             source_video=source_video,
             target_camera=target_camera,
             cfg_scale=args.cfg_scale,
-            num_inference_steps=10,
+            num_inference_steps=5,
             seed=0, tiled=True
         )
         save_video(video, os.path.join(output_dir, f"video{batch_idx}.mp4"), fps=30, quality=5) 
