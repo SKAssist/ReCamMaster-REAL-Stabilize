@@ -17,8 +17,10 @@ class Camera(object):
         self.c2w_mat = c2w_mat
         self.w2c_mat = np.linalg.inv(c2w_mat)
 
+#347 actual 
+# max_num_frames is total number of frames in video, num_frames is the number of frames you want 
 class TextVideoCameraDataset(torch.utils.data.Dataset):
-    def __init__(self, base_path, metadata_path, args, max_num_frames=81, frame_interval=1, num_frames=81, height=480, width=832, is_i2v=False):
+    def __init__(self, base_path, metadata_path, args, max_num_frames=325, frame_interval=1, num_frames=325, height=480, width=832, is_i2v=False):
         metadata = pd.read_csv(metadata_path)
         self.path = [os.path.join(base_path, "videos", file_name) for file_name in metadata["file_name"]]
         self.text = metadata["text"].to_list()
@@ -72,7 +74,7 @@ class TextVideoCameraDataset(torch.utils.data.Dataset):
         frames = torch.stack(frames, dim=0)
         frames = rearrange(frames, "T C H W -> C T H W")
 
-        if self.is_i2v:
+        if self.is_i2v:  #can condition on first frame
             return frames, first_frame
         else:
             return frames
@@ -86,7 +88,11 @@ class TextVideoCameraDataset(torch.utils.data.Dataset):
     
 
     def load_video(self, file_path):
+        # reader = imageio.get_reader(file_path)
+        # num_frames_actual = reader.count_frames()
+        # print(f"Total number of actual frames: {num_frames_actual}")
         start_frame_id = torch.randint(0, self.max_num_frames - (self.num_frames - 1) * self.frame_interval, (1,))[0]
+        # start_frame_id = 0
         frames = self.load_frames_using_imageio(file_path, self.max_num_frames, start_frame_id, self.frame_interval, self.num_frames, self.frame_process)
         return frames
 
@@ -124,14 +130,18 @@ class TextVideoCameraDataset(torch.utils.data.Dataset):
         if video is None:
             raise ValueError(f"{path} is not a valid video.")
         num_frames = video.shape[1]
-        assert num_frames == 81
+        print(f"num_frames {num_frames}")
+        print(f"video shape {video.shape}")
+              
+        # assert num_frames == 81
         data = {"text": text, "video": video, "path": path}
 
         # load camera
-        tgt_camera_path = "./example_test_data/cameras/camera_extrinsics.json"
+        tgt_camera_path = "./real_test_data/cameras/camera_extrinsics.json"
         with open(tgt_camera_path, 'r') as file:
             cam_data = json.load(file)
-
+        
+        # pick every forth frame
         cam_idx = list(range(num_frames))[::4]
         traj = [self.parse_matrix(cam_data[f"frame{idx}"][f"cam{int(self.cam_type):02d}"]) for idx in cam_idx]
         traj = np.stack(traj).transpose(0, 2, 1)
@@ -172,7 +182,7 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="./results",
+        default="./real_results_v3",
         help="Path to save the results.",
     )
     parser.add_argument(
@@ -251,7 +261,7 @@ if __name__ == '__main__':
             source_video=source_video,
             target_camera=target_camera,
             cfg_scale=args.cfg_scale,
-            num_inference_steps=50,
+            num_inference_steps=10,
             seed=0, tiled=True
         )
-        save_video(video, os.path.join(output_dir, f"video{batch_idx}.mp4"), fps=30, quality=5)
+        save_video(video, os.path.join(output_dir, f"video{batch_idx}.mp4"), fps=30, quality=5) 
