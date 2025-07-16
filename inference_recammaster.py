@@ -61,7 +61,7 @@ class TextVideoCameraDataset(torch.utils.data.Dataset):
         
         frames = []
         first_frame = None
-        for frame_id in range(num_frames):
+        for frame_id in range(0,num_frames, 3):
             frame = reader.get_data(start_frame_id + frame_id * interval)
             frame = Image.fromarray(frame)
             frame = self.crop_and_resize(frame)
@@ -142,6 +142,7 @@ class TextVideoCameraDataset(torch.utils.data.Dataset):
             cam_data = json.load(file)
         
         # pick every forth frame
+        # cam_idx = list(range(num_frames))[::4]
         cam_idx = list(range(num_frames))[::4]
         traj = [self.parse_matrix(cam_data[f"frame{idx}"][f"cam{int(self.cam_type):02d}"]) for idx in cam_idx]
         traj = np.stack(traj).transpose(0, 2, 1)
@@ -182,7 +183,7 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="./real_results_v3",
+        default="./real_results_v6",
         help="Path to save the results.",
     )
     parser.add_argument(
@@ -264,4 +265,4 @@ if __name__ == '__main__':
             num_inference_steps=10,
             seed=0, tiled=True
         )
-        save_video(video, os.path.join(output_dir, f"video{batch_idx}.mp4"), fps=30, quality=5) 
+        save_video(video, os.path.join(output_dir, f"video{batch_idx}.mp4"), fps=10, quality=5) 

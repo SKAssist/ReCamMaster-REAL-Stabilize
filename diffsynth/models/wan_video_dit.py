@@ -207,16 +207,16 @@ class DiTBlock(nn.Module):
         input_x = modulate(self.norm1(x), shift_msa, scale_msa)
 
         # encode camera
-        print("inside DiT block")
-        print(f"cam_emb shape {cam_emb.shape}")
+        # print("inside DiT block")
+        #print(f"cam_emb shape {cam_emb.shape}")
         cam_emb = self.cam_encoder(cam_emb)
-        print(f"cam_emb shape {cam_emb.shape}")
+        #print(f"cam_emb shape {cam_emb.shape}")
         cam_emb = cam_emb.repeat(1, 2, 1)
-        print(f"cam_emb shape {cam_emb.shape}")
+        #print(f"cam_emb shape {cam_emb.shape}")
         cam_emb = cam_emb.unsqueeze(2).unsqueeze(3).repeat(1, 1, 30, 52, 1)
-        print(f"cam_emb shape {cam_emb.shape}")
+        #print(f"cam_emb shape {cam_emb.shape}")
         cam_emb = rearrange(cam_emb, 'b f h w d -> b (f h w) d')
-        print(f"cam_emb shape {cam_emb.shape}")
+        #print(f"cam_emb shape {cam_emb.shape}")
         # min_shape = min(cam_emb.shape[1], input_x.shape[1])
         # cam_emb = cam_emb[:, :min_shape, :]
         input_x = input_x + cam_emb
@@ -302,17 +302,17 @@ class WanModel(torch.nn.Module):
         self.freqs = precompute_freqs_cis_3d(head_dim)
 
         if has_image_input:
-            self.img_emb = MLP(1280, dim)  # clip_feature_dim = 1280
+            self.img_emb = MLP(1280, dim)  
 
     def patchify(self, x: torch.Tensor):
-        print("in patchify")
-        print(x.shape)
+        # print("in patchify")
+        # print(x.shape)
         x = self.patch_embedding(x)
-        print(f"x shape {x.shape}")
+        # print(f"x shape {x.shape}")
         grid_size = x.shape[2:]
         
         x = rearrange(x, 'b c f h w -> b (f h w) c').contiguous()
-        print(f"x shape {x.shape}")
+        # print(f"x shape {x.shape}")
         return x, grid_size  # x, grid_size: (f, h, w)
 
     def unpatchify(self, x: torch.Tensor, grid_size: torch.Tensor):
