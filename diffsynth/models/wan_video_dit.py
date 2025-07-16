@@ -300,9 +300,11 @@ class WanModel(torch.nn.Module):
         self.head = Head(dim, out_dim, patch_size, eps)
         head_dim = dim // num_heads
         self.freqs = precompute_freqs_cis_3d(head_dim)
-
-        if has_image_input:
-            self.img_emb = MLP(1280, dim)  # clip_feature_dim = 1280
+        self.img_emb = None
+        self.img_emb = MLP(1280, dim)
+        if has_image_input and self.img_emb is not None:
+            print("has_image_input, initialized MLP")
+              # clip_feature_dim = 1280
 
     def patchify(self, x: torch.Tensor):
         # print("in patchify")

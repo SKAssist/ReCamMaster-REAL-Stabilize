@@ -65,9 +65,12 @@ class TextVideoCameraDataset(torch.utils.data.Dataset):
             frame = reader.get_data(start_frame_id + frame_id * interval)
             frame = Image.fromarray(frame)
             frame = self.crop_and_resize(frame)
-            if first_frame is None:
-                first_frame = np.array(frame)
             frame = frame_process(frame)
+            if first_frame is None:
+                first_frame = frame.squeeze(0).cpu().numpy()
+                first_frame = np.array(first_frame)
+                print(f"first_frame.shape: {first_frame.shape}")
+            
             frames.append(frame)
         reader.close()
 
@@ -138,7 +141,12 @@ class TextVideoCameraDataset(torch.utils.data.Dataset):
         # print(f"video shape {video.shape}")
               
         # assert num_frames == 81
-        data = {"text": text, "video": video, "path": path}
+        
+        if self.is_i2v:
+            data = {"text": text, "video": video[0],"first_frame":video[1], "path": path}
+        else:
+            data = {"text": text, "video": video, "path": path}
+            
 
         # load camera
         tgt_camera_path = "./real_test_data/cameras/camera_extrinsics.json"
@@ -186,7 +194,7 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="./real_results_v5",
+        default="./real_results_v6",
         help="Path to save the results.",
     )
     parser.add_argument(
@@ -210,6 +218,7 @@ def parse_args():
 
 if __name__ == '__main__':
     args = parse_args()
+    is_i2v=True
 
     # 1. Load Wan2.1 pre-trained models
     model_manager = ModelManager(torch_dtype=torch.bfloat16, device="cpu")
@@ -217,9 +226,11 @@ if __name__ == '__main__':
         "models/Wan-AI/Wan2.1-T2V-1.3B/diffusion_pytorch_model.safetensors",
         "models/Wan-AI/Wan2.1-T2V-1.3B/models_t5_umt5-xxl-enc-bf16.pth",
         "models/Wan-AI/Wan2.1-T2V-1.3B/Wan2.1_VAE.pth",
+        "models/Wan-AI/Wan2.1-T2V-1.3B/models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth"
+
     ])
-    # pipe = WanVideoReCamMasterPipeline.from_model_manager(model_manager, device="cuda", is_i2v=True)
-    pipe = WanVideoReCamMasterPipeline.from_model_manager(model_manager, device="cuda", is_i2v=False)
+    pipe = WanVideoReCamMasterPipeline.from_model_manager(model_manager, device="cuda", is_i2v=is_i2v)
+    # pipe = WanVideoReCamMasterPipeline.from_model_manager(model_manager, device="cuda", is_i2v=False)
 
     # 2. Initialize additional modules introduced in ReCamMaster
     dim=pipe.dit.blocks[0].self_attn.q.weight.shape[0]
@@ -233,7 +244,12 @@ if __name__ == '__main__':
 
     # 3. Load ReCamMaster checkpoint
     state_dict = torch.load(args.ckpt_path, map_location="cpu")
-    pipe.dit.load_state_dict(state_dict, strict=True)
+    # pipe.dit.load_state_dict(state_dict, strict=True)
+    missing, unexpected = pipe.dit.load_state_dict(state_dict, strict=False)
+    print("Missing keys:", missing)
+    print("Unexpected keys:", unexpected)
+    if any(k.startswith("img_emb") for k in missing):
+        print("Warning: img_emb weights missing — initializing randomly")
     pipe.to("cuda")
     pipe.to(dtype=torch.bfloat16)
 
@@ -245,7 +261,7 @@ if __name__ == '__main__':
     dataset = TextVideoCameraDataset(
         args.dataset_path,
         os.path.join(args.dataset_path, "metadata.csv"),
-        args, is_i2v=False
+        args, is_i2v=is_i2v
     )
     dataloader = torch.utils.data.DataLoader(
         dataset,
@@ -258,6 +274,12 @@ if __name__ == '__main__':
     for batch_idx, batch in enumerate(dataloader):
         target_text = batch["text"]
         source_video = batch["video"]
+        if is_i2v:
+            first_frame = batch["first_frame"]
+            if first_frame is not None:
+                print("got first frame")
+        else:
+            first_frame = None
         target_camera = batch["camera"]
 
         video = pipe(
@@ -265,6 +287,7 @@ if __name__ == '__main__':
             negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
             source_video=source_video,
             target_camera=target_camera,
+            input_image=first_frame,
             cfg_scale=args.cfg_scale,
             num_inference_steps=5,
             seed=0, tiled=True

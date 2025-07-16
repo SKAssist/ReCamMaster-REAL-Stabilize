@@ -1,5 +1,5 @@
 from ..models import ModelManager
-from ..models.wan_video_dit import WanModel
+from ..models.wan_video_dit import WanModel, MLP
 from ..models.wan_video_text_encoder import WanTextEncoder
 from ..models.wan_video_vae import WanVideoVAE
 from ..models.wan_video_image_encoder import WanImageEncoder
@@ -133,6 +133,9 @@ class WanVideoReCamMasterPipeline(BasePipeline):
             self.prompter.fetch_tokenizer(os.path.join(os.path.dirname(tokenizer_path), "google/umt5-xxl"))
         self.dit = model_manager.fetch_model("wan_video_dit")
         self.dit.has_image_input = self.has_image_input
+        if (self.dit.has_image_input):
+            print("has image input fetch models")
+            # self.dit.img_emb = MLP(1280, self.dit.dim)
         self.vae = model_manager.fetch_model("wan_video_vae")
         self.image_encoder = model_manager.fetch_model("wan_video_image_encoder")
 
@@ -156,20 +159,36 @@ class WanVideoReCamMasterPipeline(BasePipeline):
     
     
     def encode_image(self, image, num_frames, height, width):
-        image = self.preprocess_image(image.resize((width, height))).to(self.device)
+        # image = self.preprocess_image(image.resize((width, height))).to(self.device)
+        print("in encode image")
+        image = image.squeeze(0)
+        print(f"image shape {image.shape}")
+        image = self.preprocess_image(image.permute(1,2,0)).to(self.device) #image shape is (3,480,832)
+        print(f"image shape {image.shape}")
         clip_context = self.image_encoder.encode_image([image])
+        print(f"clip context {clip_context.shape}")
         msk = torch.ones(1, num_frames, height//8, width//8, device=self.device)
         msk[:, 1:] = 0
+        print(f"msk shape{msk.shape}")
         msk = torch.concat([torch.repeat_interleave(msk[:, 0:1], repeats=4, dim=1), msk[:, 1:]], dim=1)
         msk = msk.view(1, msk.shape[1] // 4, 4, height//8, width//8)
+        print(f"msk shape{msk.shape}")
         msk = msk.transpose(1, 2)[0]
-        
+        print(f"msk shape{msk.shape}")
         vae_input = torch.concat([image.transpose(0, 1), torch.zeros(3, num_frames-1, height, width).to(image.device)], dim=1)
+        print(f"vae input {vae_input.shape}")
         y = self.vae.encode([vae_input.to(dtype=self.torch_dtype, device=self.device)], device=self.device)[0]
+        print(f"y shape {y.shape}")
         y = torch.concat([msk, y])
+        print(f"y shape {y.shape}")
         y = y.unsqueeze(0)
+        print(f"y shape {y.shape}")
         clip_context = clip_context.to(dtype=self.torch_dtype, device=self.device)
         y = y.to(dtype=self.torch_dtype, device=self.device)
+        if y is not None:
+            print("y is not None")
+        if clip_context is not None:
+            print("clip_context is not None")
         return {"clip_feature": clip_context, "y": y}
 
 
@@ -262,9 +281,14 @@ class WanVideoReCamMasterPipeline(BasePipeline):
         prompt_emb_posi = self.encode_prompt(prompt, positive=True)
         if cfg_scale != 1.0:
             prompt_emb_nega = self.encode_prompt(negative_prompt, positive=False)
-            
+        
+        if input_image is None:
+            print("NONE image")
+        if self.image_encoder is None:
+            print("No image encoder") 
         # Encode image
         if input_image is not None and self.image_encoder is not None:
+            print("Encoding image")
             self.load_models_to_device(["image_encoder", "vae"])
             image_emb = self.encode_image(input_image, num_frames, height, width)
         else:
@@ -284,7 +308,7 @@ class WanVideoReCamMasterPipeline(BasePipeline):
             timestep = timestep.unsqueeze(0).to(dtype=self.torch_dtype, device=self.device)
             # print(f"latents shape{latents.shape}")
             latents_input = torch.cat([latents, source_latents], dim=2)
-            # print(f"latents_input shape{latents_input.shape}")
+            print(f"latents_input shape{latents_input.shape}")
             # Inference
             noise_pred_posi = model_fn_wan_video(self.dit, latents_input, timestep=timestep, cam_emb=cam_emb, **prompt_emb_posi, **image_emb, **extra_input, **tea_cache_posi)
             if cfg_scale != 1.0:
@@ -375,8 +399,14 @@ def model_fn_wan_video(
     context = dit.text_embedding(context)
     
     if dit.has_image_input:
-       # print(f"w/ image input {x.shape}")
+        print(f"x shape {x.shape}")
+        print(f"y shape {y.shape}")
+        if y.shape[2] != x.shape[2]:
+            y = torch.nn.functional.interpolate(
+                y, size=(x.shape[2], y.shape[3], y.shape[4]), mode='trilinear', align_corners=False
+            )
         x = torch.cat([x, y], dim=1)  # (b, c_x + c_y, f, h, w)
+        
        # print(f"w/ image input after concatenating {x.shape}")
         
         clip_embdding = dit.img_emb(clip_feature)
