@@ -194,7 +194,7 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="./real_results_v6",
+        default="./real_results_v7",
         help="Path to save the results.",
     )
     parser.add_argument(

@@ -133,8 +133,11 @@ class WanVideoReCamMasterPipeline(BasePipeline):
             self.prompter.fetch_tokenizer(os.path.join(os.path.dirname(tokenizer_path), "google/umt5-xxl"))
         self.dit = model_manager.fetch_model("wan_video_dit")
         self.dit.has_image_input = self.has_image_input
-        if (self.dit.has_image_input):
-            print("has image input fetch models")
+        self.img_emb = MLP(1280, self.dit.dim)
+        if self.dit.has_image_input and self.img_emb is not None:
+            print("has_image_input, initialized MLP")
+        # if (self.dit.has_image_input):
+        #     print("has image input fetch models")
             # self.dit.img_emb = MLP(1280, self.dit.dim)
         self.vae = model_manager.fetch_model("wan_video_vae")
         self.image_encoder = model_manager.fetch_model("wan_video_image_encoder")
